@@ -472,9 +472,97 @@ if(SCALE) {
       ), by = c("system", "school", "year")
   )
   
+  # TVAAS indices? 
+  tvaas = bind_rows(
+    # 2012
+    readxl::read_excel("data/2012/raw/School_Accountability_2012.xlsx", sheet = "2011-12 ALL Schools (1653) R1") %>%
+      transmute(year = 2012, system = DistrictNumber, school = SchoolNumber, tvaas = Tvaas1yrScore),
+    # 2013
+    readxl::read_excel("data/2013/2013_tvaas/school_accountability/TCAP-EOC School Composites8.12.13_NO_sat10.xlsx") %>% 
+      filter(Composite == "Overall") %>% 
+      transmute(year = 2013, system = as.numeric(`District Code`), school = as.numeric(`School Code`), 
+                tvaas = Index),
+    # 2014
+    readxl::read_excel("projects/2014/2014_Final_school_accountability/Accountability App/reward14_output_081814_mb_FINAL_081814.xlsx") %>% 
+      transmute(year = 2014, system = system_number, school = school_number, tvaas = tvaas_1yr_composite_index),
+    # 2015
+    read_dta("projects/2015/2015_school_coding/Output/reward_2015_ap.dta") %>% 
+      transmute(year = 2015, system, school, tvaas = Index),
+    # 2016
+    # 2017
+    read_csv("projects/2017_school_accountability/reward.csv") %>% 
+      transmute(year = 2017, system, school, tvaas = tvaas_new),
+    # 2018
+    readxl::read_excel("data/2018_tvaas/2018-School-Level-Accountability-Results-EOC-TCAP.xlsx") %>% 
+      filter(Grade == "All grades" & Subgroup == "All Students") %>%
+      transmute(year = 2018, system = as.numeric(`System Number`), school = as.numeric(`School Number`), 
+                tvaas = Index)
+  ) %>%
+    # Percentiles
+    group_by(year) %>% 
+    mutate(percentile = round(100 * percent_rank(tvaas), 1)) %>%
+    ungroup() %>%
+    # Crosswalk Shelby County and municipals
+    left_join(read_dta("N:/Research and Policy/ORP_Data/Resources/Crosswalks/Raw_Files/Shelby county district numbers/c2shelbycw.dta"),
+              by = c("system" = "old_sys_id", "school" = "old_sch_id")) %>% 
+    mutate(system = ifelse(is.na(new_sys_id), system, new_sys_id),
+           school = ifelse(is.na(new_sch_id), school, new_sch_id)) %>% 
+    # Check if the school is currently active
+    select(-ends_with("_id")) %>% 
+    left_join(
+      dbGetQuery(
+        sde_con,
+        "select
+        bu.nces_identifier,
+        cast(district_number as int) as system,
+        cast(school_number as int) as school,
+        bu.bu_name as school_name,
+        bu.status,
+        op.op_end_date as close_date
+        from school s
+        join business_unit bu on bu.bu_id = s.bu_id
+        join operational_period op on op.bu_id = bu.bu_id"
+      ) %>% 
+        janitor::clean_names(), by = c("system", "school")
+      ) %>% 
+    mutate(close_date = case_when(
+      status == "I" ~ ymd_hms(close_date)
+    )) %>% 
+    group_by(year, system, school, school_name) %>% 
+    summarize_at(vars(tvaas:nces_identifier), funs(max(., na.rm = T))) %>% 
+    ungroup() %>% 
+    left_join(
+      bind_rows(
+        # 2012
+        readxl::read_excel("C:/Users/CA19130/Downloads/data_2012_school_profile.xlsx") %>% 
+          transmute(year = 2012, system = district, school, adm = as.numeric(`Average Daily Membership`)),
+        # 2013 
+        readxl::read_excel("C:/Users/CA19130/Downloads/data_2013_school_profile.xlsx") %>% 
+          transmute(year = 2013, system = as.numeric(DISTRICT), school = as.numeric(`SCHOOL NO`), 
+                    adm = as.numeric(`Average Daily Membership`)),
+        # 2014
+        readxl::read_excel("C:/Users/CA19130/Downloads/data_2014_school_profile.xlsx") %>% 
+          transmute(year = 2014, system = district, school = SCHOOL_ID, adm = Average_Daily_Membership),
+        # 2015
+        readxl::read_excel("C:/Users/CA19130/Downloads/data_2015_school_profile.xlsx") %>% 
+          transmute(year = 2015, system = DISTRICT, school = SCHOOL_ID, adm = AVERAGE_DAILY_MEMBERSHIP),
+        # 2017
+        readxl::read_excel("C:/Users/CA19130/Downloads/data_2016-17_school_profile.xlsx") %>% 
+          transmute(year = 2017, system = DISTRICT_ID, school = SCHOOL_ID, adm = AVERAGE_DAILY_MEMBERSHIP),
+        # 2018
+        readxl::read_excel("C:/Users/CA19130/Downloads/school_profile_2017-18.xlsx") %>% 
+          transmute(year = 2018, system = DISTRICT_ID, school = SCHOOL_ID, adm = AVERAGE_DAILY_MEMBERSHIP)
+      ) %>%
+        left_join(read_dta("N:/Research and Policy/ORP_Data/Resources/Crosswalks/Raw_Files/Shelby county district numbers/c2shelbycw.dta"),
+                  by = c("system" = "old_sys_id", "school" = "old_sch_id")) %>% 
+        mutate(system = ifelse(is.na(new_sys_id), system, new_sys_id),
+               school = ifelse(is.na(new_sch_id), school, new_sch_id)
+      ), by = c("system", "school", "year")
+  )
+  
   # Map loop
-  for(yr in sort(unique(landscape$year))) {
-    ggplot(data = filter(landscape, year == yr) %>% 
+  for(yr in sort(unique(tvaas$year))) {
+    ggplot(data = filter(tvaas, year == yr) %>% 
              left_join(read_dta("C:/Users/CA19130/Documents/Data/Crosswalks/core_region_crosswalk.dta") %>%
                          transmute(system, system_name), by = "system") %>%
              mutate(system_name = case_when(
@@ -493,10 +581,10 @@ if(SCALE) {
       scale_color_continuous(name = "Percentile", low = "#af8dc3", high = "#7fbf7b", limits = c(0, 100)) + 
       # scale_size_continuous(name = "ADM") + 
       coord_map() + 
-      ggtitle(str_c("School Performance (TCAP Percentile), ", yr - 1, "-", str_sub(yr, -2, -1))) + 
+      ggtitle(str_c("School Performance (TVAAS Rank), ", yr - 1, "-", str_sub(yr, -2, -1))) + 
       theme(plot.title = element_text(hjust = 0.5))
-    ggsave(str_c("projects/Evan/Projects/Performance and Geography/Visuals/Map of School Performance, ", yr - 1, "-", str_sub(yr, -2, -1), ".png"),
-           units = "in", width = 9.17, height = 4.95)
+    ggsave(str_c("projects/Evan/Projects/Performance and Geography/Visuals/Map of School Improvement, ", yr - 1, "-", str_sub(yr, -2, -1), ".png"),
+      units = "in", width = 9.17, height = 4.95)
   } 
 } else {
   rm(SCALE)
