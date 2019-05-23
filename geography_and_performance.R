@@ -12,9 +12,9 @@ library(rgdal)
 setwd("N:/ORP_accountability")
 
 DATA = F
-FOCUS = T
+FOCUS = F
 PRIORITY = F
-REWARD = F
+REWARD = T
 SCALE = F
 TVAAS = F
 ANALYSIS = F
@@ -256,7 +256,7 @@ if(PRIORITY) {
       coord_map() + 
       ggtitle(str_c("Priority Schools, ", yr - 1, "-", str_sub(yr, -2, -1))) + 
       theme(plot.title = element_text(hjust = 0.5))
-    ggsave(str_c("N:/ORP_accountability/projects/Evan/School Improvement/Map of Priority Schools, ", yr - 1, "-", str_sub(yr, -2, -1), ".png"), 
+    ggsave(str_c("projects/Evan/Projects/Performance and Geography/Visuals/Map of Priority Schools, ", yr - 1, "-", str_sub(yr, -2, -1), ".png"), 
            units = "in", width = 9.17, height = 4.95)
   } 
 } else {
