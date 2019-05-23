@@ -271,6 +271,9 @@ if(REWARD) {
       filter(str_detect(Status, "Reward")) %>%
       transmute(year = 2012, system = DistrictNumber, school = SchoolNumber, reward = T),
     # 2013
+    read_dta("projects/2013/2013_SCHOOL_ACCOUNTABILITY/DELIVERABLES/reward_output_all2013.dta") %>% 
+      filter(reward_performance == 1 | reward_progress == 1) %>% 
+      transmute(year = 2013, system = system_number, school = school_number, reward = T),
     # 2014
     readxl::read_excel("projects/2014/2014_Final_school_accountability/Accountability App/reward14_output_081814_mb_FINAL_081814.xlsx") %>% 
       filter(reward_performance == 1 | reward_progress == 1) %>% 
@@ -324,6 +327,10 @@ if(REWARD) {
         # 2012
         readxl::read_excel("C:/Users/CA19130/Downloads/data_2012_school_profile.xlsx") %>% 
           transmute(year = 2012, system = district, school, adm = as.numeric(`Average Daily Membership`)),
+        # 2013
+        readxl::read_excel("C:/Users/CA19130/Downloads/data_2013_school_profile.xlsx") %>% 
+          transmute(year = 2013, system = as.numeric(DISTRICT), school = as.numeric(`SCHOOL NO`), 
+                    adm = `Average Daily Membership`),
         # 2014
         readxl::read_excel("C:/Users/CA19130/Downloads/data_2014_school_profile.xlsx") %>% 
           transmute(year = 2014, system = district, school = SCHOOL_ID, adm = Average_Daily_Membership),
@@ -344,6 +351,36 @@ if(REWARD) {
     )
   
   # Urbanicity
+  left_join(
+    reward,
+    readxl::read_excel("C:/Users/CA19130/Downloads/Copy of TEEC Data Request_TDOE.xlsx", sheet = 6, skip = 14) %>% 
+      transmute(system = as.numeric(str_sub(`State School ID`, 5, 8)),
+                system_name = District,
+                school = as.numeric(str_sub(`State School ID`, -4, -1)),
+                school_name = `School Name`,
+                locale_code = `Locale Code*`,
+                locale = case_when(
+                  str_detect(`Locale*`, "City") ~ "City",
+                  str_detect(`Locale*`, "Rural") ~ "Rural",
+                  str_detect(`Locale*`, "Suburb") ~ "Suburb",
+                  str_detect(`Locale*`, "Town") ~ "Town"
+                )),
+    by = c("system", "school")
+  ) %>% 
+    filter(!is.na(locale)) %>%
+    group_by(year, locale) %>% 
+    summarize(n_schools = n()) %>% 
+    ungroup() %>% 
+    ggplot(aes(x = year, y = n_schools, fill = locale, group = locale)) + 
+      # geom_bar(stat = "identity", position = "fill") + 
+      geom_bar(stat = "identity", position = "stack") + 
+      scale_x_continuous(breaks = seq(min(reward$year), max(reward$year), 1)) + 
+      scale_y_continuous(name = "Number of Schools") + 
+      scale_fill_discrete(name = "") +
+      theme_bw()
+  ggsave(str_c("projects/Evan/Projects/Performance and Geography/Visuals/Reward Schools by Urbanicity, ", 
+               min(reward$year), "-", max(reward$year), ".png"), 
+         units = "in", width = 9.17, height = 4.95)
   
   # Map loop
   for(yr in sort(unique(reward$year))) {
